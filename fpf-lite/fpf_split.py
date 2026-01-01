@@ -13,85 +13,93 @@ def normalize_text(text):
     text = text.replace('\u00A0', ' ') # Non-breaking space
     return text
 
-def get_target_module(header_line):
+def get_header_part_letter(line):
     """
-    Determines which module a section belongs to based on the Part letter.
+    Detects if a line is a 'Part X' header and returns the letter (A, B, C...).
+    Returns None if it's not a Part header.
     """
-    # Normalize for easier matching
-    clean_line = normalize_text(header_line).upper()
-
-    # Regex to find "Part X"
-    match = re.search(r'#\s*PART\s+([A-Z])', clean_line)
+    clean_line = normalize_text(line).strip()
     
-    if not match:
-        return None
-
-    part_letter = match.group(1)
-
-    # --- ROUTING LOGIC ---
+    # Regex to find "# Part X" or "## Part X" (case insensitive)
+    # We look for the pattern: Start of line -> hashes -> whitespace -> "Part" -> whitespace -> Single Letter
+    match = re.search(r'^#+\s*Part\s+([A-Z])', clean_line, re.IGNORECASE)
     
-    # KERNEL: Ontology, Roles, Lexicon, Constitution
-    # Part A: Kernel Architecture
-    # Part E: Constitution & Authoring (contains E.10 LEX)
-    if part_letter in ['A', 'E']:
-        return 'kernel'
+    if match:
+        return match.group(1).upper()
+    return None
 
-    # LOGIC: Reasoning, Unification, Trust
-    # Part B: Reasoning Cluster
-    # Part F: Unification Suite
-    elif part_letter in ['B', 'F']:
-        return 'logic'
+def write_module(filename, parts_content, parts_list):
+    """
+    Writes a list of Part contents into a single module file.
+    """
+    if not parts_list:
+        return
 
-    # DOMAIN: Specific Architheories, Implementation, Appendices
-    # Part C: Architheories (CAL/CHR)
-    # Part D: Ethics
-    # Part G: SoTA Kit
-    # Parts H, I, J, K: Appendices
-    else:
-        return 'domain'
+    print(f"  Building {filename} from: {', '.join(parts_list)}")
+    
+    with open(filename, 'w', encoding='utf-8') as f:
+        for part_id in parts_list:
+            if part_id in parts_content:
+                # Add a separator between parts for clarity (optional)
+                if f.tell() > 0: 
+                    f.write("\n\n<!-- MODULE SEPARATOR: End of Part " + part_id + " -->\n\n")
+                
+                f.writelines(parts_content[part_id])
+    
+    size_kb = os.path.getsize(filename) / 1024
+    print(f"    -> Created {filename} ({round(size_kb, 1)} KB)")
 
-def split_fpf(input_file):
+def split_and_assemble_fpf(input_file):
     if not os.path.exists(input_file):
         print(f"Error: File {input_file} not found.")
         return
 
-    # Output filenames
-    filenames = {
-        'kernel': 'FPF-Module-Kernel.md',
-        'logic':  'FPF-Module-Logic.md',
-        'domain': 'FPF-Module-Domain.md'
-    }
+    # 1. READ & PARSE
+    # We store content in a dict: { 'PREFACE': [...], 'A': [...], 'B': [...] }
+    parts_content = {}
+    current_part = 'PREFACE' # Default container for content before the first "Part A"
+    parts_content[current_part] = []
 
-    # Open handles for all output files
-    files = {key: open(name, 'w', encoding='utf-8') for key, name in filenames.items()}
-
-    # Default target (Preface goes to Kernel)
-    current_target = 'kernel'
-    
     print(f"Reading {input_file}...")
     
     with open(input_file, 'r', encoding='utf-8') as f:
         for line in f:
-            # Check if this line is a Part header
-            if line.strip().startswith('#'):
-                new_target = get_target_module(line)
-                if new_target:
-                    current_target = new_target
-                    print(f"--> Switching to [{current_target.upper()}] at: {line.strip()[:40]}...")
+            # Check for new Part header
+            new_part_letter = get_header_part_letter(line)
+            
+            if new_part_letter:
+                current_part = new_part_letter
+                if current_part not in parts_content:
+                    parts_content[current_part] = []
+                print(f"  -> Found start of Part {current_part}")
+            
+            # Append line to the currently active part bucket
+            parts_content[current_part].append(line)
 
-            # Write line to the currently active module
-            files[current_target].write(line)
-
-    # Close all files
-    for f in files.values():
-        f.close()
+    # 2. DEFINE ASSEMBLY RULES ("Split by Layers")
+    # Kernel: Preface + A (Ontology) + E (Constitution)
+    kernel_parts = ['PREFACE', 'A', 'E']
+    
+    # Logic: B (Reasoning) + F (Unification)
+    logic_parts = ['B', 'F']
+    
+    # Domain: C (Architheories) + D (Ethics) + G (SoTA) + Appendices (H, I, J, K...)
+    # We dynamically grab all other found parts (C, D, G, H, I, J, K, etc.)
+    all_found_keys = set(parts_content.keys())
+    used_keys = set(kernel_parts + logic_parts)
+    domain_parts = sorted(list(all_found_keys - used_keys))
 
     print("-" * 30)
-    print("Splitting complete. Created:")
-    for name in filenames.values():
-        size_kb = os.path.getsize(name) / 1024
-        print(f"  - {name} ({round(size_kb, 1)} KB)")
+    print("Assembling Modules...")
+
+    # 3. WRITE MODULES
+    write_module('FPF-Module-Kernel.md', parts_content, kernel_parts)
+    write_module('FPF-Module-Logic.md', parts_content, logic_parts)
+    write_module('FPF-Module-Domain.md', parts_content, domain_parts)
+
+    print("-" * 30)
+    print("Done.")
 
 if __name__ == "__main__":
     INPUT_FILE = "FPF-Spec.md"
-    split_fpf(INPUT_FILE)
+    split_and_assemble_fpf(INPUT_FILE)
