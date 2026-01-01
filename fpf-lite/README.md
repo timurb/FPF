@@ -1,66 +1,67 @@
 # FPF Specification Compressor
 
-Утилита для семантического сжатия спецификации **First Principles Framework (FPF)**. 
+A utility for the semantic compression of the **First Principles Framework (FPF)** specification.
 
-Предназначена для подготовки больших Markdown-файлов (~1M токенов) к загрузке в контекстное окно LLM (Google Gemini, GPT-4, Claude), сохраняя при этом нормативную целостность документа.
+It is designed to prepare large Markdown files (~1M tokens) for loading into the context window of LLMs (Google Gemini, GPT-4, Claude) while maintaining the document's normative integrity.
 
-## 🎯 Проблема
-Спецификация FPF содержит не только правила, но и обширные вводные статьи, исторический контекст (SoTA), обоснования (Rationale) и описание проблем (Problem Frame). 
-*   **Размер:** Полный файл занимает ~1,000,000 токенов.
-*   **Последствия:** Это вызывает ошибки `resource_exhausted`, увеличивает стоимость запросов и, парадоксально, **снижает качество ответов** модели из-за эффекта "Lost in the Middle" (размытие внимания).
+## 🎯 The Problem
+The FPF specification contains not only rules but also extensive introductory essays, historical context (SoTA), rationales, and problem frames.
+*   **Size:** The full file occupies ~1,000,000 tokens.
+*   **Consequences:** This causes `resource_exhausted` errors, increases query costs, and paradoxically **reduces answer quality** due to the "Lost in the Middle" effect (attention dilution).
 
-## 💡 Решение
-Скрипт выполняет **семантическое сжатие**: он удаляет информационные (`Informative`) разделы, оставляя нормативные (`Normative`).
+## 💡 The Solution
+The script performs **semantic compression**: it removes informational (`Informative`) sections while retaining normative (`Normative`) ones.
 
-**Что удаляется:**
-1.  **Preface / Introduction:** Вводные эссе, оглавление.
-2.  **SoTA-Echoing:** Ссылки на научные работы и сравнение с индустрией (State-of-the-Art).
-3.  **(Опционально) Rationale / Forces / Problem:** Философское обоснование решений.
+**What is removed:**
+1.  **Preface / Introduction:** Introductory essays, table of contents.
+2.  **SoTA-Echoing:** References to scientific papers and industry comparisons (State-of-the-Art).
+3.  **(Optional) Rationale / Forces / Problem:** Philosophical justification of decisions.
 
-**Что сохраняется (Ядро):**
-1.  **Definitions:** Определения типов и терминов.
-2.  **Solution:** Само архитектурное решение.
-3.  **Conformance Checklist:** Критерии проверки.
-4.  **Archetypal Grounding:** Примеры (критически важно для Few-Shot Learning).
-
----
-
-## 🧠 Влияние на мощность рассуждений модели
-
-Сжатие файла по этому методу не просто экономит токены, но и **меняет поведение модели**.
-
-### ✅ Положительное влияние (Instruction Density)
-Удаление "воды" повышает **плотность инструкций**. 
-*   В полном файле правила разбавлены историческими справками. Внимание (Attention mechanism) модели размывается.
-*   В сжатом файле процент токенов, содержащих императивы (`MUST`, `SHALL`), значительно выше. Модель лучше следует жестким правилам и реже галлюцинирует, выдумывая философские обоснования.
-
-### ⚠️ Риски и нюансы
-1.  **Потеря "Духа закона":** Разделы `Rationale` и `Forces` объясняют *почему* правило существует. Без них модель становится "бюрократом" — она блестяще следует букве закона, но может затрудниться в разрешении сложных пограничных кейсов (edge cases).
-2.  **Риск потери примеров:** Скрипт настроен так, чтобы **сохранять** разделы `Archetypal Grounding`. Удаление примеров катастрофически снизило бы качество работы (LLM плохо понимают абстрактные правила без примеров). Данный скрипт защищает эти секции.
-
-**Вердикт:** Для задач кодогенерации, валидации и строгого следования формату сжатая версия работает **лучше и точнее** полной.
+**What is preserved (The Core):**
+1.  **Definitions:** Definitions of types and terms.
+2.  **Solution:** The architectural solution itself.
+3.  **Conformance Checklist:** Validation criteria.
+4.  **Archetypal Grounding:** Examples (critical for Few-Shot Learning).
 
 ---
 
-## 🚀 Использование
+## 🧠 Impact on Model Reasoning Power
 
-### Требования
+Compressing the file using this method not only saves tokens but also **changes the model's behavior**.
+
+### ✅ Positive Impact (Instruction Density)
+Removing "fluff" increases **instruction density**.
+*   In the full file, rules are diluted with historical details. The model's attention mechanism gets diluted.
+*   In the compressed file, the percentage of tokens containing imperatives (`MUST`, `SHALL`) is significantly higher. The model follows strict rules better and hallucinates philosophical justifications less often.
+
+### ⚠️ Risks and Nuances
+1.  **Loss of the "Spirit of the Law":** Sections like `Rationale` and `Forces` explain *why* a rule exists. Without them, the model becomes a "bureaucrat"—it follows the letter of the law brilliantly but may struggle to resolve complex edge cases.
+2.  **Risk of Losing Examples:** The script is configured to **preserve** `Archetypal Grounding` sections. Removing examples would catastrophically reduce performance (LLMs understand abstract rules poorly without examples). This script protects these sections.
+
+**Verdict:** For code generation, validation, and strict formatting tasks, the compressed version works **better and more accurately** than the full version.
+
+---
+
+## 🚀 Usage
+
+### Requirements
 *   Python 3.x
-*   Никаких внешних библиотек не требуется (используются стандартные `re`, `os`).
+*   No external libraries required (uses standard `re`, `os`).
 
-### Запуск
-1.  Склонируйте репозиторий.
-2.  Запустите команду:
+### Execution
+1.  Clone the repository
+2.  Run the command:
 
 ```bash
 python fpf-lite/fpf_compressor.py
 ```
 
-3.  Скрипт создаст два файла `FPF-Spec-Lite.md` (удалены только Preface и SoTA) и `FPF-Spec-Robust.md` (удалены также Problem, Forces, Rationale. Оставлены только сухие правила).
+3.  The script will create 2 files: `FPF-Spec-Lite.md` (Removes only Preface and SoTA) and `FPF-Spec-Aggressive.md` (Also removes Problem, Forces, Rationale. Leaves only dry rules).
 
 
-## 🛠 Особенности работы скрипта
+## 🛠 Script Features
 
-1.  **Нормализация Unicode:** Скрипт умеет обрабатывать специфические символы, используемые в FPF, такие как неразрывный дефис (`\u2011`, используемый в слове "SoTA‑Echoing") и различные виды тире. Обычный поиск по строке их не находит.
-2.  **Структурный парсинг:** Скрипт понимает уровни заголовков Markdown (`#`, `##`, `###`). Если он начал вырезать секцию `SoTA`, он остановится ровно там, где начнется следующая секция того же уровня, не удалив лишнего.
-3.  **Case-Insensitive:** Ловит заголовки `SoTA`, `SOTA`, `state-of-the-art` независимо от регистра.
+1.  **Unicode Normalization:** The script handles specific characters used in FPF, such as the non-breaking hyphen (`\u2011`, used in "SoTA‑Echoing") and various dashes. Standard string searches miss these.
+2.  **Structural Parsing:** The script understands Markdown header levels (`#`, `##`, `###`). If it starts cutting a `SoTA` section, it stops exactly where the next section of the same level begins, ensuring nothing extra is deleted.
+3.  **Case-Insensitive:** Catches headers like `SoTA`, `SOTA`, `state-of-the-art` regardless of case.
+```
