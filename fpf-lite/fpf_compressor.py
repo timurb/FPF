@@ -2,11 +2,13 @@
 
 import re
 import os
+import sys
+from pathlib import Path
 
 def normalize_text(text):
     """
-    Заменяет все виды тире, дефисов и неразрывных пробелов на стандартные ASCII символы.
-    Это критично для FPF, где используется '‑' (U+2011) вместо '-'.
+    Replaces all types of dashes, hyphens, and non-breaking spaces with standard ASCII characters.
+    This is critical for FPF, where '‑' (U+2011) is often used instead of '-'.
     """
     text = text.replace('\u2011', '-') # Non-breaking hyphen
     text = text.replace('\u2013', '-') # En dash
@@ -15,14 +17,15 @@ def normalize_text(text):
     return text
 
 def compress_fpf(input_path, output_path, aggressive=False):
-    # Ключевые слова для удаления. 
-    # Пишем их с ОБЫЧНЫМ дефисом, так как текст мы нормализуем перед проверкой.
+    # Keywords to remove.
+    # We use standard hyphens here because the text is normalized before checking.
     REMOVE_KEYWORDS = [
         "SoTA-Echoing", 
         "SOTA-Echoing",
-        "State-of-the-Art",
-        "SoTA echoing"
-    ]
+        "SoTA Echoing",      # Вариант с пробелом
+        "SOTA Echoing",
+        "State-of-the-Art alignment" # Для A.14:14 и подобных
+        ]
     
     if aggressive:
         REMOVE_KEYWORDS.extend([
@@ -30,67 +33,67 @@ def compress_fpf(input_path, output_path, aggressive=False):
             "Problem", 
             "Forces", 
             "Rationale",
-            "Anti-patterns" # Опционально, если нужно сэкономить еще
+            "Anti-patterns" # Optional: add if extreme saving is needed
         ])
 
-    # Паттерн заголовка Markdown (от 1 до 6 решеток)
+    # Markdown header pattern (1 to 6 hashes)
     header_pattern = re.compile(r'^(#+)\s+(.*)')
     
-    # Паттерн начала "полезной нагрузки" (пропускаем Preface)
-    # Ищем начало "Part A" или "A.0"
+    # Pattern for the start of the "payload" content (skip Preface/TOC)
+    # Looks for the start of "Part A" or "A.0"
     start_marker_pattern = re.compile(r'^#+\s+(Part A|A\.0)', re.IGNORECASE)
 
     try:
         with open(input_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
     except FileNotFoundError:
-        print(f"Файл {input_path} не найден.")
+        print(f"Error: File {input_path} not found.")
         return
 
     output_lines = []
     
-    # Флаги состояния
+    # State flags
     is_content_started = False
     skipping_section = False
     skip_level = 0
     
     removed_counters = {k: 0 for k in REMOVE_KEYWORDS}
     
-    print(f"Обработка {len(lines)} строк...")
+    print(f"Processing {len(lines)} lines...")
 
     for line in lines:
-        # 1. Логика удаления Preface (всего до Part A)
+        # 1. Preface removal logic (skip everything before Part A)
         if not is_content_started:
             if start_marker_pattern.match(line):
                 is_content_started = True
                 output_lines.append(line)
-                print("--> Найдено начало контента (Part A/A.0). Preface удален.")
+                print("--> Found content start (Part A/A.0). Preface removed.")
                 continue
             else:
-                continue # Пропускаем строки Preface
+                continue # Skip Preface lines
 
-        # 2. Проверка заголовков
+        # 2. Header checking
         match = header_pattern.match(line)
         if match:
-            level = len(match.group(1)) # Уровень заголовка (#)
+            level = len(match.group(1)) # Header level (# count)
             raw_title = match.group(2).strip()
             
-            # Нормализуем заголовок для проверки (убираем спец. символы)
+            # Normalize title for robust checking (remove special chars)
             clean_title = normalize_text(raw_title)
 
-            # Если мы сейчас пропускаем секцию...
+            # If we are currently skipping a section...
             if skipping_section:
-                # Если встретили заголовок того же уровня или выше (меньше #) -> конец пропуска
+                # If we meet a header of the same level or higher (fewer #) -> stop skipping
                 if level <= skip_level:
                     skipping_section = False
                 else:
-                    # Это подсекция -> продолжаем пропускать
+                    # This is a subsection -> continue skipping
                     continue
 
-            # Проверяем, нужно ли удалить эту новую секцию
+            # Check if we need to start skipping this new section
             found_keyword = None
             for keyword in REMOVE_KEYWORDS:
-                # Проверка: ищем ключевое слово в нормализованном заголовке
+                # Check: search for keyword in the normalized title (case-insensitive)
                 if keyword.lower() in clean_title.lower():
                     found_keyword = keyword
                     break
@@ -99,34 +102,35 @@ def compress_fpf(input_path, output_path, aggressive=False):
                 skipping_section = True
                 skip_level = level
                 removed_counters[found_keyword] += 1
-                # print(f"  [Удалено] {raw_title}") # Раскомментируйте для отладки
+                # Uncomment the line below for debugging:
+                # print(f"  [Removed] {raw_title}")
                 continue
 
-        # 3. Запись строки (если не в режиме пропуска)
+        # 3. Write line (if not in skip mode)
         if not skipping_section:
             output_lines.append(line)
 
-    # Сохранение
+    # Save results
     with open(output_path, 'w', encoding='utf-8') as f:
         f.writelines(output_lines)
 
     print("-" * 30)
-    print(f"Статистика удалений секций:")
+    print(f"Removal statistics:")
     for k, v in removed_counters.items():
         if v > 0:
-            print(f"  - {k}: {v} шт.")
+            print(f"  - {k}: {v} sections")
     
     original_size = len(lines)
     new_size = len(output_lines)
     reduction = round((1 - new_size/original_size)*100, 1)
     
     print("-" * 30)
-    print(f"Готово. Результат: {output_path}")
-    print(f"Строк: {original_size} -> {new_size} (сжатие {reduction}%)")
-    print()
+    print(f"Done. Result: {output_path}")
+    print(f"Lines: {original_size} -> {new_size} (Reduction: {reduction}%)")
 
 if __name__ == "__main__":
     INPUT_FILE = "FPF-Spec.md"
-        
-    compress_fpf(INPUT_FILE, "FPF-Spec-Lite.md", False)
-    compress_fpf(INPUT_FILE, "FPF-Spec-Aggressive.md", True)
+
+    Path("compressed").mkdir(parents=True, exist_ok=True)
+    compress_fpf(INPUT_FILE, "compressed/FPF-Spec-Lite.md", False)
+    compress_fpf(INPUT_FILE, "compressed/FPF-Spec-Aggressive.md", True)
